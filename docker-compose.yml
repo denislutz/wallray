@@ -1,0 +1,76 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: wallray
+      POSTGRES_PASSWORD: wallray
+      POSTGRES_DB: wallray
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wallray"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio-init:
+    image: minio/mc
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin &&
+      mc mb --ignore-existing local/wallray
+      "
+    restart: "no"
+
+  be:
+    build:
+      context: ./be
+    ports:
+      - "8000:8000"
+    env_file: .env.local
+    environment:
+      DATABASE_URL: postgresql+asyncpg://wallray:wallray@db:5432/wallray
+      DEBUG: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  fe:
+    build:
+      context: ./fe
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    env_file: .env.local
+    environment:
+      AUTH_URL: http://localhost:3000
+      INTERNAL_API_URL: http://be:8000
+    depends_on:
+      - be
+
+volumes:
+  pg_data:
+  minio_data:

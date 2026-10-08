@@ -1,0 +1,21 @@
+name: Deploy to Production
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Trigger Coolify deploy — backend (prod)
+        env:
+          URL: ${{ secrets.COOLIFY_WEBHOOK_BE }}
+          TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+        run: '[[ -z "$URL" ]] || curl -fsSL -X GET -H "Authorization: Bearer $TOKEN" "$URL"'
+
+      - name: Trigger Coolify deploy — frontend (prod)
+        env:
+          URL: ${{ secrets.COOLIFY_WEBHOOK_FE }}
+          TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+        run: '[[ -z "$URL" ]] || curl -fsSL -X GET -H "Authorization: Bearer $TOKEN" "$URL"'

@@ -1,0 +1,12 @@
+<!--
+  Extracted verbatim from "WallRay Logo (standalone).html" ("32px favicon sim").
+  Composition context (not baked into this file): container div 32x32, background #30525C,
+  border-radius 6px. Simplified vs. the 60/88px marks: no scan->crack connector line,
+  no ray glow layer, bolder strokes — deliberate simplification for legibility at small size.
+-->
+<svg width="22" height="22" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <rect x="12" y="10" width="76" height="80" rx="8" fill="#F6F3F1"/>
+  <polygon points="61,70 75,65 80,76 70,84 59,78" fill="#30525C"/>
+  <polyline points="37,19 33,29 39,37 32,47 38,58 34,68 37,79" fill="none" stroke="#30525C" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="4" y1="55" x2="96" y2="55" stroke="#C35627" stroke-width="6" stroke-linecap="round"/>
+</svg>

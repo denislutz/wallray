@@ -1,0 +1,79 @@
+# ── Environment ───────────────────────────────────────────────────────────────
+# Root
+.env.local
+# Backend override
+be/.env
+# Frontend
+fe/.env.local
+# Catch-all (never commit secrets)
+*.env.local
+*.env.prd
+*.env.prod
+*.env.test
+*.env.secret
+
+# ── Python ────────────────────────────────────────────────────────────────────
+be/.venv/
+be/__pycache__/
+be/**/__pycache__/
+be/**/*.pyc
+be/.pytest_cache/
+be/.ruff_cache/
+be/.mypy_cache/
+be/htmlcov/
+be/.coverage
+be/dist/
+be/*.egg-info/
+
+# ── Node / Next.js ────────────────────────────────────────────────────────────
+fe/node_modules/
+fe/.next/
+fe/out/
+fe/dist/
+fe/.pnpm-store/
+
+# ── Editors / OS ──────────────────────────────────────────────────────────────
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ── Docker ────────────────────────────────────────────────────────────────────
+docker-compose.override.yml
+
+# ── MLflow ────────────────────────────────────────────────────────────────────
+mlruns/
+mlartifacts/
+
+# ── SQLite ────────────────────────────────────────────────────────────────────
+be/*.db
+be/*.db-shm
+be/*.db-wal
+
+# ── Generated PDFs ────────────────────────────────────────────────────────────
+docs/*.pdf
+be/tests/output/
+
+# ── Qdrant ────────────────────────────────────────────────────────────────────
+# dropped at whatever dir qdrant is run from if invoked manually
+.qdrant-initialized
+storage/
+
+# ── Playwright ────────────────────────────────────────────────────────────────
+fe/test-results/
+fe/playwright-report/
+fe/playwright/.cache/
+fe/e2e/.auth/
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
+*.log
+uploads/
+
+# ── Private (business/legal/ops — not published) ──────────────────────────────
+/CLUSTERS.md
+/CLUSTERS_DE.md
+/legal/
+/docs/business/
+/docs/clusterindex/
+/docs/tech/DEVOPS.md

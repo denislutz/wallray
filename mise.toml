@@ -1,0 +1,281 @@
+[tools]
+python = "3.13"
+node = "22"
+uv = "latest"
+pnpm = "11.8.0"
+
+[env]
+_.python.venv = { path = "be/.venv", create = false }
+_.file = ".env.local"
+PYTHONPATH = "{{config_root}}/be"
+# WeasyPrint needs Pango/GLib from Homebrew on macOS
+DYLD_LIBRARY_PATH = "/opt/homebrew/lib"
+
+API_HOST = "0.0.0.0"
+API_PORT = "8000"
+FE_PORT = "3000"
+
+# ── CocoIndex ─────────────────────────────────────────────────────────────────
+COCOINDEX_REPO_PATH = "{{config_root}}"          # this project's root — auto-set on cd
+COCOINDEX_DIR = "/Users/minimalist/Work/Startups/cocoindex"       # path to the tool — update when moved
+
+# ── Backend ───────────────────────────────────────────────────────────────────
+
+[tasks.be-install]
+description = "Install Python dependencies"
+dir = "be"
+run = "uv sync"
+
+[tasks.be-start]
+description = "Start backend — checks .env.local and venv, then uvicorn hot-reload"
+run = "bash scripts/start-be.sh"
+
+[tasks.be-api]
+description = "Start FastAPI dev server (raw, no pre-flight checks)"
+dir = "be"
+run = "uv run uvicorn app.main:app --reload --host $API_HOST --port $API_PORT"
+
+[tasks.be-test]
+description = "Run backend test suite (excludes integration tests)"
+dir = "be"
+run = "uv run pytest tests/ -v -m 'not integration'"
+
+[tasks.qdrant-start]
+description = "Start Qdrant vector DB (logs to logs/qdrant.log)"
+run = "mkdir -p logs && QDRANT__STORAGE__STORAGE_PATH=cocoindex/storage qdrant 2>&1 | tee -a logs/qdrant.log"
+
+[tasks.infra-start]
+description = "Start Postgres + MinIO in Docker (detached)"
+depends = ["qdrant-start"]
+run = "docker compose up db minio minio-init -d"
+
+[tasks.db-logs]
+description = "Follow Postgres logs → logs/db.log"
+run = "mkdir -p logs && docker compose logs -f db 2>&1 | tee -a logs/db.log"
+
+[tasks.minio-logs]
+description = "Follow MinIO logs → logs/minio.log"
+run = "mkdir -p logs && docker compose logs -f minio 2>&1 | tee -a logs/minio.log"
+
+[tasks.start-dev]
+description = "Start everything: Postgres + MinIO + Qdrant + backend + frontend"
+depends = ["infra-start", "index:live", "be-start", "fe-start"]
+
+[tasks.logs-clear]
+description = "Truncate all log files in logs/"
+run = "for f in logs/*.log; do [ -f \"$f\" ] && : > \"$f\" && echo \"cleared $f\"; done"
+
+[tasks."db:reset"]
+description = "Drop schema and replay all migrations from scratch (dev only)"
+dir = "be"
+run = """
+uv run python -c "
+import asyncio
+from app.core.db import engine
+from sqlalchemy import text
+async def drop():
+    async with engine.begin() as conn:
+        await conn.execute(text('DROP SCHEMA public CASCADE'))
+        await conn.execute(text('CREATE SCHEMA public'))
+    await engine.dispose()
+asyncio.run(drop())
+"
+uv run alembic upgrade head
+"""
+
+[tasks.be-check]
+description = "Full backend static analysis: ruff format + lint + mypy (read-only)"
+dir = "be"
+run = """
+uv run ruff format .
+uv run ruff check .
+uv run mypy app/
+"""
+
+# ── Frontend ──────────────────────────────────────────────────────────────────
+
+[tasks.fe-install]
+description = "Install frontend dependencies"
+dir = "fe"
+run = "pnpm install"
+
+[tasks.fe-start]
+description = "Start frontend — installs deps if missing, then Next.js dev server"
+run = "bash scripts/start-fe.sh"
+
+[tasks.fe-dev]
+description = "Start Next.js dev server (raw, no pre-flight checks)"
+dir = "fe"
+run = "pnpm dev"
+
+[tasks.fe-check]
+description = "Full frontend validation: tsc + biome check + next build (read-only)"
+dir = "fe"
+run = """
+pnpm typecheck
+pnpm check
+pnpm build
+"""
+
+# ── E2E (Playwright) — NOT part of qa:*, run standalone or via CI's e2e job ──
+
+[tasks.fe-e2e-install]
+description = "Install Playwright browsers (one-time)"
+depends = ["fe-install"]
+dir = "fe"
+run = "pnpm exec playwright install --with-deps chromium"
+
+[tasks.fe-e2e]
+description = "Run Playwright E2E suite (default: test env, fake AI; E2E_ENV=local for localhost)"
+dir = "fe"
+run = "pnpm exec playwright test --project=chromium"
+
+[tasks.fe-e2e-local]
+description = "Run Playwright E2E suite against localhost (requires mise run start-dev)"
+dir = "fe"
+env = { E2E_ENV = "local" }
+run = "pnpm exec playwright test --project=chromium"
+
+[tasks.fe-e2e-local-ui]
+description = "Open Playwright UI mode against localhost (requires mise run start-dev)"
+dir = "fe"
+env = { E2E_ENV = "local" }
+run = "pnpm exec playwright test --project=chromium --ui"
+
+[tasks.fe-e2e-real-ai]
+description = "Run the real-AI E2E project — actual Anthropic calls, explicit-only, never in CI"
+dir = "fe"
+run = "pnpm exec playwright test --project=real-ai"
+
+# ── code:clean — autofix lint + format + typecheck ───────────────────────────
+
+[tasks."code:clean:be"]
+description = "Autofix backend: ruff format + ruff check --fix, then mypy"
+dir = "be"
+run = """
+uv run ruff format .
+uv run ruff check . --fix
+uv run mypy app/
+"""
+
+[tasks."code:clean:fe"]
+description = "Autofix frontend: stamp deploy time, biome check --write, then tsc"
+dir = "fe"
+run = """
+printf '// Auto-generated by code:clean — do not edit\nconst BuildTimeS = { time: "%s" };\nexport default BuildTimeS;\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" > services/tech/BuildTimeS.ts
+pnpm exec biome check . --write
+pnpm typecheck
+"""
+
+[tasks."code:clean"]
+description = "Autofix everything: backend + frontend in parallel"
+depends = ["code:clean:be", "code:clean:fe"]
+
+# ── QA gate — autofix + typecheck + tests ────────────────────────────────────
+
+[tasks."qa:be"]
+description = "QA gate: autofix + type-check + test backend (excludes integration tests)"
+depends = ["code:clean:be"]
+dir = "be"
+run = "uv run pytest tests/ -v -m 'not integration'"
+
+[tasks."qa:fe"]
+description = "QA gate: autofix + type-check + build frontend"
+depends = ["code:clean:fe"]
+dir = "fe"
+run = "pnpm build"
+
+[tasks."qa:all"]
+description = "Full QA gate: BE + FE in parallel — must pass before every push"
+depends = ["qa:be", "qa:fe", "md:fix"]
+
+[tasks."qa:local"]
+description = "Local QA: db reset → full QA gate → health ping + be log check"
+run = """
+mise run "db:reset"
+mise run "qa:all"
+echo "--- health ping ---"
+curl -sf http://localhost:8000/health || echo "WARNING: backend not reachable"
+echo "--- be log (errors/warnings) ---"
+tail -n 50 logs/be.log | grep -E 'ERROR|WARNING|Exception|Traceback' || echo "no errors in last 50 lines"
+"""
+
+# ── Schema sync — BE Pydantic → be/openapi.json → fe/types/api.ts ────────────
+
+[tasks."schema:export"]
+description = "Export BE OpenAPI schema to be/openapi.json (no server needed)"
+dir = "be"
+run = """
+uv run python -c "
+import json
+from app.main import app
+open('openapi.json', 'w').write(json.dumps(app.openapi(), indent=2))
+print('schema:export → be/openapi.json')
+"
+"""
+
+[tasks."schema:gen"]
+description = "Generate fe/types/api.ts from be/openapi.json"
+dir = "fe"
+run = "pnpm exec openapi-typescript ../be/openapi.json -o types/api.ts"
+
+[tasks."schema:sync"]
+description = "Export BE schema then regenerate FE types (run after Pydantic schema changes)"
+run = "mise run schema:export && mise run schema:gen"
+
+[tasks."schema:check"]
+description = "CI: fail if committed FE types are out of sync with BE schema"
+run = """
+mise run schema:sync
+git diff --exit-code be/openapi.json fe/types/api.ts || (echo "Run: mise run schema:sync && git add be/openapi.json fe/types/api.ts" && exit 1)
+"""
+
+# ── Markdown ─────────────────────────────────────────────────────────────────
+
+[tasks."md:fix"]
+description = "Autofix markdown files (blanks around headings/lists, etc.)"
+run = "mise exec -- fe/node_modules/.bin/markdownlint-cli2 --fix '**/*.md' '#fe/node_modules' '#be/.venv' '#.git'"
+
+# ── CocoIndex — forwards to standalone tool at $COCOINDEX_DIR ────────────────
+
+[tasks."index:update"]
+description = "Re-index repo into Qdrant (incremental — only changed files)"
+run = "cd $COCOINDEX_DIR && $COCOINDEX_DIR/.venv/bin/cocoindex update main.py"
+
+[tasks."index:live"]
+description = "Watch repo for changes and keep Qdrant index in sync"
+run = "cd $COCOINDEX_DIR && $COCOINDEX_DIR/.venv/bin/cocoindex update main.py -L"
+
+[tasks."index:reset"]
+description = "Drop and rebuild Qdrant index from scratch"
+run = "cd $COCOINDEX_DIR && $COCOINDEX_DIR/.venv/bin/cocoindex drop main.py -f && $COCOINDEX_DIR/.venv/bin/cocoindex update main.py"
+
+[tasks."index:query"]
+description = "Search the Qdrant index — usage: mise run index:query -- <query>"
+run = "cd $COCOINDEX_DIR && $COCOINDEX_DIR/.venv/bin/python query.py $@"
+
+# ── Top-level ─────────────────────────────────────────────────────────────────
+
+[tasks.install]
+description = "Install all dependencies (backend + frontend + Playwright browsers)"
+depends = ["be-install", "fe-install", "fe-e2e-install"]
+
+[tasks.check]
+description = "Run all static analysis (backend + frontend)"
+depends = ["be-check", "fe-check"]
+
+[tasks.kill-api]
+description = "Kill uvicorn process on API_PORT"
+run = "{ pgrep -f 'uvicorn app.main:app'; lsof -ti :$API_PORT; } | sort -u | xargs kill -9 2>/dev/null && echo 'api: killed' || echo 'api: not running'"
+
+[tasks.kill-fe]
+description = "Kill Next.js dev server on FE_PORT"
+run = "{ pgrep -f 'next dev'; lsof -ti :$FE_PORT; } | sort -u | xargs kill -9 2>/dev/null && echo 'fe: killed' || echo 'fe: not running'"
+
+[tasks.kill-qdrant]
+description = "Kill Qdrant process"
+run = "pgrep -f '^qdrant$' | xargs kill -9 2>/dev/null && echo 'qdrant: killed' || echo 'qdrant: not running'"
+
+[tasks.kill]
+description = "Kill all dev processes"
+depends = ["kill-api", "kill-fe", "kill-qdrant"]

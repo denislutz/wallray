@@ -1,0 +1,253 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: wallray
+          POSTGRES_PASSWORD: wallray
+          POSTGRES_DB: wallray
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql+asyncpg://wallray:wallray@localhost:5432/wallray
+      ANTHROPIC_API_KEY: ci-placeholder
+      AUTH_SECRET: ci-placeholder-secret-32-chars-min
+      JWT_SECRET: ci-placeholder-secret-32-chars-min
+      STRIPE_SECRET_KEY: ci-placeholder
+      STRIPE_WEBHOOK_SECRET: ci-placeholder
+      RESEND_API_KEY: ci-placeholder
+      RESEND_FROM_ADDRESS: noreply@example.com
+      STORAGE_BUCKET: wallray
+      STORAGE_ENDPOINT_URL: http://localhost:9000
+      STORAGE_ACCESS_KEY_ID: minioadmin
+      STORAGE_SECRET_ACCESS_KEY: minioadmin
+      DEBUG: "false"
+      BE_BASE_URL: https://api.example.com
+      FE_BASE_URL: https://app.example.com
+      MARKETING_BASE_URL: https://app.example.com
+      CORS_ORIGINS: https://app.example.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        working-directory: be
+        run: uv sync --frozen
+
+      - name: Lint + typecheck
+        working-directory: be
+        run: |
+          uv run ruff check .
+          uv run mypy app/ alembic/
+
+      - name: Tests
+        working-directory: be
+        run: uv run pytest tests/ -v -m "not integration"
+
+  frontend:
+    runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_BE_BASE_URL: https://api.example.com
+      NEXT_PUBLIC_FE_BASE_URL: https://app.example.com
+      AUTH_SECRET: ci-placeholder-secret-32-chars-min
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Enable pnpm
+        run: corepack enable && corepack prepare pnpm@11.8.0 --activate
+
+      - name: Install dependencies
+        working-directory: fe
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint + typecheck
+        working-directory: fe
+        run: |
+          pnpm exec biome check .
+          pnpm typecheck
+
+      - name: Build
+        working-directory: fe
+        run: pnpm build
+
+  deploy-test:
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    outputs:
+      reference_time: ${{ steps.reference_time.outputs.value }}
+    steps:
+      # Captured here, immediately before triggering the deploy — not in the e2e job, which only
+      # starts after this one finishes and then spends a minute+ on its own checkout/install steps
+      # before it would otherwise get around to capturing a "reference" time. Coolify's build can
+      # easily complete within that gap, making a same-job-captured reference time already later
+      # than the new container's actual start time — a false "still old" reading forever.
+      - name: Capture reference time
+        id: reference_time
+        run: echo "value=$(date -u +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger Coolify deploy — backend (test)
+        env:
+          URL: ${{ secrets.COOLIFY_WEBHOOK_BE_TEST }}
+          TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+        run: '[[ -z "$URL" ]] || curl -fsSL -X GET -H "Authorization: Bearer $TOKEN" "$URL"'
+
+      - name: Trigger Coolify deploy — frontend (test)
+        env:
+          URL: ${{ secrets.COOLIFY_WEBHOOK_FE_TEST }}
+          TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+        run: '[[ -z "$URL" ]] || curl -fsSL -X GET -H "Authorization: Bearer $TOKEN" "$URL"'
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [deploy-test]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    env:
+      AUTH_SECRET: ${{ secrets.AUTH_SECRET_TEST }}
+      TEST_BASIC_AUTH_USER: ${{ secrets.TEST_BASIC_AUTH_USER }}
+      TEST_BASIC_AUTH_PASS: ${{ secrets.TEST_BASIC_AUTH_PASS }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Enable pnpm
+        run: corepack enable && corepack prepare pnpm@11.8.0 --activate
+
+      - name: Install dependencies
+        working-directory: fe
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        working-directory: fe
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Wait for test environment to redeploy
+        env:
+          REFERENCE_TIME: ${{ needs.deploy-test.outputs.reference_time }}
+        run: |
+          # /health's `version` field is the backend process's start timestamp — a container that
+          # was already running before the deploy was triggered (i.e. still the old build) reports
+          # a version older than REFERENCE_TIME, so a bare "is /health reachable" check isn't
+          # enough to prove the *new* code is live. Poll until the reported version is fresh.
+          for i in $(seq 1 30); do
+            RESPONSE=$(curl -fsS https://test.api.wallray.app/health || true)
+            VERSION=$(echo "$RESPONSE" | jq -r '.version // empty')
+            if [[ -n "$VERSION" ]]; then
+              VERSION_EPOCH=$(date -u -d "$VERSION" +%s 2>/dev/null || echo 0)
+              if [[ "$VERSION_EPOCH" -ge "$REFERENCE_TIME" ]]; then
+                echo "new build is live (version=$VERSION)"
+                break
+              fi
+              echo "still old build (version=$VERSION) — waiting... ($i/30)"
+            else
+              echo "backend not reachable yet — waiting... ($i/30)"
+            fi
+            sleep 10
+            if [[ "$i" -eq 30 ]]; then
+              echo "test backend never redeployed with the new build" >&2
+              exit 1
+            fi
+          done
+
+          # /health needs no DB and answers instantly even mid-startup, so it passing doesn't
+          # prove the app is actually ready — a fresh container can still be finishing Alembic
+          # migrations or warming up its DB connection pool. Confirm a real, DB-touching request
+          # also succeeds before handing off to the suite (discovered the hard way: otp/send 504'd
+          # here once even though /health had already reported the fresh version).
+          echo "confirming a DB-touching endpoint is responsive..."
+          BE_WARM=false
+          for i in $(seq 1 12); do
+            STATUS=$(curl -s -o /dev/null -m 15 -w "%{http_code}" -X POST \
+              -H "Content-Type: application/json" \
+              -H "X-E2E-Skip-Turnstile: 1" \
+              -d '{"email":"e2e-warmup@wallray.app","terms_accepted":true}' \
+              https://test.api.wallray.app/auth/otp/send || echo "000")
+            if [[ "$STATUS" == "200" ]]; then
+              echo "backend is warmed up (otp/send responded 200)"
+              BE_WARM=true
+              break
+            fi
+            echo "otp/send returned $STATUS — waiting for DB warmup... ($i/12)"
+            sleep 5
+          done
+          if [[ "$BE_WARM" != "true" ]]; then
+            echo "backend never warmed up (otp/send never returned 200)" >&2
+            exit 1
+          fi
+
+          # Backend and frontend are separate Coolify services that don't necessarily finish
+          # deploying at the same time (FE's `next build` is often slower) — confirmed the hard
+          # way: a run's E2E suite passed locally but failed against test with an untranslated
+          # label, because the FE container was still serving the previous build while the backend
+          # (checked above) had already redeployed. fe/app/api/health mirrors the backend's
+          # /health exactly (StartTimeS captures a real process-start timestamp, not a git-commit-
+          # triggered stamp), so this uses the identical reference-time comparison as the backend
+          # wait above — no more comparing a "before" string that only changes when fe/ source
+          # itself changes, which false-negatived on every commit that didn't touch fe/.
+          echo "confirming the frontend has redeployed..."
+          for i in $(seq 1 18); do
+            # -f only treats HTTP >=400 as failure — a 307 (e.g. proxy.ts redirecting an
+            # unauthenticated request before this route was made public) is "success" to curl but
+            # its body isn't JSON, so guard the jq parse itself rather than relying on curl's exit
+            # code: an old container serving a redirect must read as "not ready yet", not abort
+            # the whole step (this runs under `bash -e`, so an unguarded jq parse error here would
+            # kill the retry loop on its first iteration instead of ever retrying).
+            RESPONSE=$(curl -fsS -m 15 -u "$TEST_BASIC_AUTH_USER:$TEST_BASIC_AUTH_PASS" https://test.app.wallray.app/api/health || true)
+            VERSION=$(echo "$RESPONSE" | jq -r '.version // empty' 2>/dev/null || echo "")
+            if [[ -n "$VERSION" ]]; then
+              VERSION_EPOCH=$(date -u -d "$VERSION" +%s 2>/dev/null || echo 0)
+              if [[ "$VERSION_EPOCH" -ge "$REFERENCE_TIME" ]]; then
+                echo "frontend redeployed (version=$VERSION)"
+                exit 0
+              fi
+              echo "frontend still on previous build (version=$VERSION) — waiting... ($i/18)"
+            else
+              echo "frontend not reachable yet — waiting... ($i/18)"
+            fi
+            sleep 10
+          done
+          echo "frontend never redeployed with the new build" >&2
+          exit 1
+
+      - name: Run E2E suite (fake AI)
+        working-directory: fe
+        run: pnpm exec playwright test --project=chromium
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            fe/playwright-report/
+            fe/test-results/
+          retention-days: 14
+
+  # No automatic deploy-prod job here (as of 2026-07-09) — every push to main still promotes to
+  # test (deploy-test → e2e) so we can ship to test as often as we want, but prod only deploys via
+  # the manual `deploy-prod.yml` workflow (`gh workflow run deploy-prod.yml`, or GitHub UI:
+  # Actions → Deploy to Production → Run workflow). See docs/tech/DEVOPS.md "Deploy Workflow".

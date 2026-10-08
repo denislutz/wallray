@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  @font-face {
+    font-family: DejaVuSans;
+    src: url("{{ font_regular }}");
+  }
+  @font-face {
+    font-family: DejaVuSans;
+    src: url("{{ font_bold }}");
+    font-weight: bold;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: DejaVuSans, Arial, sans-serif;
+    font-size: 13px;
+    color: #1a1a1a;
+    padding: 40px 48px;
+  }
+  h1 { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+  .meta { color: #555; font-size: 12px; margin-bottom: 32px; }
+  .section { margin-bottom: 28px; }
+  .section-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #888;
+    border-bottom: 1px solid #e0e0e0;
+    padding-bottom: 4px;
+    margin-bottom: 12px;
+  }
+  .badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-weight: 700;
+    font-size: 12px;
+    text-transform: capitalize;
+  }
+  .severity-low      { background: #d4edda; color: #155724; }
+  .severity-medium   { background: #fff3cd; color: #856404; }
+  .severity-high     { background: #f8d7da; color: #721c24; }
+  .severity-critical { background: #c82333; color: #fff; }
+  .kv { display: flex; gap: 8px; margin-bottom: 6px; }
+  .kv-label { font-weight: 600; min-width: 120px; color: #444; }
+  .notes { margin-top: 8px; line-height: 1.6; color: #333; }
+  .description { line-height: 1.6; color: #333; font-style: italic; }
+  .expert-note {
+    border-left: 3px solid #888;
+    padding-left: 12px;
+    margin-top: 4px;
+    line-height: 1.6;
+    color: #333;
+    font-style: italic;
+  }
+  .photo-grid { width: 100%; }
+  .photo-grid table { width: 100%; border-collapse: collapse; }
+  .photo-grid td { vertical-align: top; padding-right: 10px; padding-bottom: 10px; }
+  .photo-grid td:last-child { padding-right: 0; }
+  .photo-grid img {
+    max-width: 100%;
+    max-height: 220px;
+    border: 1px solid #e0e0e0;
+  }
+  .footer {
+    margin-top: 48px;
+    font-size: 10px;
+    color: #aaa;
+    border-top: 1px solid #e0e0e0;
+    padding-top: 10px;
+  }
+  .footer .disclaimer {
+    font-size: 10.5px;
+    color: #555;
+    margin-bottom: 6px;
+  }
+</style>
+</head>
+<body>
+  <h1>{{ report_title }}</h1>
+  {% if name %}<p style="font-size:15px;font-weight:600;margin-bottom:4px;">{{ name }}</p>{% endif %}
+  <p class="meta">{{ job_label }} {{ job_id }} &nbsp;·&nbsp; {{ created_at }}</p>
+
+  <div class="section">
+    <div class="section-title">{{ section_summary }}</div>
+    <div class="kv">
+      <span class="kv-label">{{ label_defect_type }}</span>
+      <span>{{ defect_type }}</span>
+    </div>
+    <div class="kv">
+      <span class="kv-label">{{ label_severity }}</span>
+      <span class="badge severity-{{ severity }}">{{ severity_label }}</span>
+    </div>
+    {% if summary %}
+    <div class="notes">{{ summary }}</div>
+    {% endif %}
+  </div>
+
+  {% if description %}
+  <div class="section">
+    <div class="section-title">{{ section_description }}</div>
+    <p class="description">"{{ description }}"</p>
+  </div>
+  {% endif %}
+
+  {% if photo_b64 %}
+  <div class="section">
+    <div class="section-title">{{ section_photos }}</div>
+    <div class="photo-grid">
+      <table>
+        {% for b64 in photo_b64 %}
+        {% if loop.index is odd %}<tr>{% endif %}
+        <td><img src="data:image/jpeg;base64,{{ b64 }}" /></td>
+        {% if loop.index is even or loop.last %}</tr>{% endif %}
+        {% endfor %}
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if expert_note_localized %}
+  <div class="section">
+    <div class="section-title">{{ section_expert_note }}</div>
+    <blockquote class="expert-note">{{ expert_note_localized }}</blockquote>
+  </div>
+  {% endif %}
+
+  <div class="footer">
+    <p class="disclaimer">
+      {{ disclaimer_text }}
+      {{ disclaimer_full_label }} {{ legal_url }}
+    </p>
+    <p>{{ generated_by_label }} &nbsp;·&nbsp; {{ generated_at }}</p>
+  </div>
+</body>
+</html>

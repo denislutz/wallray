@@ -1,0 +1,13 @@
+<!--
+  Extracted verbatim from "WallRay Logo (standalone).html" (monochrome pair, on-white variant).
+  Composition context (not baked into this file): container div background #fff,
+  1px border #e5e1de, padding 16px.
+-->
+<svg width="44" height="44" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <rect x="12" y="10" width="76" height="80" rx="6" fill="#111"/>
+  <polygon points="62,69 74,65 79,75 70,83 60,78" fill="#fff"/>
+  <polyline points="37,19 33,29 39,37 32,47 38,58 34,68 37,79" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="39,37 51,42" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="4" y1="55" x2="96" y2="55" stroke="#111" stroke-width="10" stroke-linecap="round" opacity="0.3"/>
+  <line x1="4" y1="55" x2="96" y2="55" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
+</svg>

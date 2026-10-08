@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <h2 style="margin-bottom:8px">{{ _("Your assessment report is ready") }}</h2>
+  <p style="color:#555;margin-top:0">
+    {{ _("WallRay has finished analysing your photos and generated a PDF report.") }}
+  </p>
+  <div style="margin-top:16px;display:flex;gap:12px;flex-wrap:wrap">
+    <a href="{{ app_report_url }}"
+       target="_blank"
+       style="display:inline-block;padding:12px 24px;
+              background:#0070f3;color:#fff;text-decoration:none;border-radius:6px">
+      {{ _("Open in WallRay") }}
+    </a>
+    <a href="{{ report_url }}"
+       target="_blank"
+       style="display:inline-block;padding:12px 24px;
+              background:#fff;color:#0070f3;text-decoration:none;border-radius:6px;
+              border:1px solid #0070f3">
+      {{ _("Download PDF") }}
+    </a>
+  </div>
+{% endblock %}
+
+{% block footer %}
+  {{ _("The PDF link expires in 1 hour.") }} {{ _("Job reference:") }} {{ job_id }}
+  <br><br>
+  <span style="color:#999">
+    {{ _("This is an AI-generated assessment, not a professional survey.") }}
+    <a href="{{ legal_url }}" style="color:#999">{{ _("Full disclaimer") }}</a>
+  </span>
+{% endblock %}

@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{% block content %}
+  <h2 style="margin-bottom:8px">{{ _("New user registered") }}</h2>
+  <p style="color:#555;margin-top:0">
+    {{ _("A new user just signed up for WallRay.") }}
+  </p>
+  <table style="margin:16px 0;border-collapse:collapse">
+    <tr>
+      <td style="padding:4px 12px 4px 0;color:#555;font-weight:bold">{{ _("Email") }}</td>
+      <td style="padding:4px 0">{{ user_email }}</td>
+    </tr>
+    <tr>
+      <td style="padding:4px 12px 4px 0;color:#555;font-weight:bold">{{ _("Role") }}</td>
+      <td style="padding:4px 0">{{ role }}</td>
+    </tr>
+  </table>
+{% endblock %}
+
+{% block footer %}{% endblock %}

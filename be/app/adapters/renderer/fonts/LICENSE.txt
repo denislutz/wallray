@@ -1,0 +1,7 @@
+DejaVu Sans (Regular, Bold)
+
+Bundled here to guarantee Cyrillic/Greek/Latin glyph coverage for PDF export
+via xhtml2pdf, which does not do font substitution/fallback like Pango did.
+
+Free for commercial use, modification, and redistribution.
+Full license: https://dejavu-fonts.github.io/License.html

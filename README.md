@@ -11,6 +11,7 @@ This is a solo-built, end-to-end portfolio project — not just a model wrapper.
 - 🧭 **Spec-driven development with AI** — every feature started as a written plan (`docs/tech/*_PLAN.md`) before a line of code, used to direct AI-assisted implementation rather than vibe-coding against it
 - ⬡ **Hexagonal architecture (backend)** — ports & adapters in `be/`, domain core isolated from FastAPI, Postgres, S3, and the LLM provider (see `docs/tech/ARCHITECTURE.md`)
 - 🧱 **Layered domain architecture (frontend)** — a strict one-directional `ui/business → ui/base`, `services/business → services/tech` dependency flow in `fe/`, enforced by convention, not just discipline
+- 🔗 **Vertical type safety, BE → FE** — FastAPI's Pydantic models are the single source of truth; `mise run schema:sync` exports them to `be/openapi.json` and feeds that through [openapi-typescript](https://openapi-ts.dev/) to generate `fe/types/api.ts`, so a backend schema change that isn't reflected on the frontend fails `tsc`, not at runtime (see [Type Safety](#type-safety) below)
 - 🌐 **i18n for 3 languages (EN/DE/RU)** — customer-facing copy, legal pages, and marketing pages all localized and routed natively in Next.js (App Router), not bolted on with a translation layer
 - 🎭 **End-to-end testing against a fully deployed app** — Playwright suite exercising the real test environment over the network, not a mocked build
 - 🔬 **"Unit size discovery" testing strategy** — a deliberate split between infrastructure code (stable APIs, high reuse → worth isolated unit tests) and feature code (one-off, evolves fast → prefer sociable tests with real collaborators over brittle mocks); see [docs/tech/unit-size-discovery-theory.md](docs/tech/unit-size-discovery-theory.md)
@@ -74,6 +75,38 @@ mise run fe-check      # tsc + biome check
 mise run check         # all static analysis
 mise run kill          # kill all dev processes
 ```
+
+## Type Safety
+
+The FE/BE boundary is statically typed end-to-end, with the backend's Pydantic models as the
+single source of truth — no hand-maintained request/response interfaces to drift out of sync:
+
+```
+be/app/api/schemas.py  (Pydantic models)
+        │  app.openapi()
+        ▼
+be/openapi.json                              ← mise run schema:export
+        │  openapi-typescript
+        ▼
+fe/types/api.ts  (paths / components["schemas"] types)   ← mise run schema:gen
+        │  imported by fe/services/business/*.ts
+        ▼
+typed HttpS.get/post/patch calls, typed React Query hooks
+```
+
+- `mise run schema:export` — imports the FastAPI app and dumps `app.openapi()` straight to
+  `be/openapi.json`; no running server needed.
+- `mise run schema:gen` — runs `openapi-typescript` against that file to (re)generate
+  `fe/types/api.ts` (auto-generated, not hand-edited — see the header comment in that file).
+- `mise run schema:sync` — the two above, run after any Pydantic schema change.
+- `mise run schema:check` — CI guard: re-runs `schema:sync` and fails the build if
+  `be/openapi.json` or `fe/types/api.ts` doesn't match what's committed, so a backend model
+  change without a regenerated frontend type can't merge silently.
+
+Frontend services import the generated types directly (`components["schemas"]` from
+`@/types/api`, e.g. `fe/services/business/JobS.ts`) rather than redeclaring response shapes by
+hand, so a renamed or removed backend field becomes a `tsc` compile error in the frontend instead
+of an `undefined` discovered in production.
 
 ## Project Structure
 
